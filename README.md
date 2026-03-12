@@ -8,12 +8,6 @@
 gh extension install TimoBechtel/gh-get
 ```
 
-For private repos, authenticate first:
-
-```bash
-gh auth login
-```
-
 ## Usage
 
 ```bash
@@ -28,7 +22,6 @@ Examples:
 
 ```bash
 gh get github/gitignore README.md
-gh get github/gitignore README.md --force
-gh get github/gitignore Global/macOS.gitignore --ref main ./macOS.gitignore
+gh get github/gitignore Global/macOS.gitignore --ref main .gitignore
 gh get --help
 ```
