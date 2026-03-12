@@ -1,6 +1,6 @@
 # gh-get
 
-`gh get` downloads a single file from a GitHub repository.
+`gh get` downloads a file or directory from a GitHub repository.
 
 ## Install
 
@@ -26,7 +26,6 @@ Examples:
 
 ```bash
 gh get github/gitignore README.md
-gh get gh-get README.md
 gh get github/gitignore Global/macOS.gitignore main ./macOS.gitignore
 gh get --help
 ```

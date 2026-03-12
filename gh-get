@@ -3,14 +3,13 @@ set -euo pipefail
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
   cat <<'HELP'
-Download a single file from a GitHub repo without cloning it.
+Download a file or directory from a GitHub repo without cloning it.
 
 Usage:
   gh get <repo|owner/repo> <path/in/repo> [ref] [output]
 
 Examples:
   gh get github/gitignore README.md
-  gh get gh-get README.md
   gh get github/gitignore Global/macOS.gitignore main ./macOS.gitignore
 HELP
   exit 0
@@ -37,17 +36,40 @@ if [[ "$repo_input" != */* ]]; then
   repo="$owner/$repo_input"
 fi
 
-temp_output="$(mktemp)"
+path_type="$(gh api "repos/$repo/contents/$file_path?ref=$ref" --jq 'if type == "array" then "dir" else .type end')"
+
+temp_output=""
+temp_extract=""
+temp_tar=""
 cleanup() {
-  rm -f "$temp_output"
+  [[ -n "$temp_output" ]] && rm -f "$temp_output"
+  [[ -n "$temp_extract" ]] && rm -rf "$temp_extract"
+  [[ -n "$temp_tar" ]] && rm -f "$temp_tar"
 }
 trap cleanup EXIT
 
-gh api \
-  -H "Accept: application/vnd.github.raw" \
-  "repos/$repo/contents/$file_path?ref=$ref" \
-  >"$temp_output"
+if [[ "$path_type" == "dir" ]]; then
+  temp_tar="$(mktemp)"
+  temp_extract="$(mktemp -d)"
+  gh api "repos/$repo/tarball/$ref" >"$temp_tar"
+  tar -xzf "$temp_tar" -C "$temp_extract"
+  root_dir="$(find "$temp_extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  if [[ -z "$root_dir" || ! -e "$root_dir/$file_path" ]]; then
+    echo "Error: failed to extract directory '$file_path' from archive." >&2
+    exit 1
+  fi
+  mv "$root_dir/$file_path" "$out"
+elif [[ "$path_type" == "file" ]]; then
+  temp_output="$(mktemp)"
+  gh api \
+    -H "Accept: application/vnd.github.raw" \
+    "repos/$repo/contents/$file_path?ref=$ref" \
+    >"$temp_output"
+  # use temp file to avoid writing errors as file
+  mv "$temp_output" "$out"
+else
+  echo "Error: unsupported path type '$path_type'." >&2
+  exit 1
+fi
 
-# use temp file to avoid writing errors as file
-mv "$temp_output" "$out"
 trap - EXIT
