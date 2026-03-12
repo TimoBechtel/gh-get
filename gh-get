@@ -6,21 +6,24 @@ print_help() {
 Download a file or directory from a GitHub repo without cloning it.
 
 Usage:
-  gh get [--force] <repo|owner/repo> <path/in/repo> [ref] [output]
+  gh get <repo|owner/repo> <path/in/repo> [--ref <ref>] [--force] [output]
 
 Options:
   -f, --force  Overwrite existing file.
+  --ref        Branch, tag, or commit. Default: main
 
 Examples:
   gh get github/gitignore README.md
+  gh get github/gitignore Global/macOS.gitignore --ref main ./macOS.gitignore
   gh get github/gitignore README.md --force
-  gh get github/gitignore Global/macOS.gitignore main ./macOS.gitignore
 HELP
 }
 
 force=0
+ref="main"
 positional_args=()
-for arg in "$@"; do
+while [[ $# -gt 0 ]]; do
+  arg="$1"
   case "$arg" in
     -h|--help|help)
       print_help
@@ -28,23 +31,36 @@ for arg in "$@"; do
       ;;
     -f|--force)
       force=1
+      shift
+      ;;
+    --ref)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --ref requires a value." >&2
+        exit 1
+      fi
+      ref="$2"
+      shift 2
+      ;;
+    --ref=*)
+      ref="${arg#*=}"
+      shift
       ;;
     *)
       positional_args+=("$arg")
+      shift
       ;;
   esac
 done
 set -- "${positional_args[@]}"
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 2 || $# -gt 3 ]]; then
   echo "Run: gh get --help" >&2
   exit 1
 fi
 
 repo_input="$1"
 file_path="$2"
-ref="${3:-main}"
-out="${4:-$(basename "$file_path")}"
+out="${3:-$(basename "$file_path")}"
 
 if [[ "$force" -ne 1 && -e "$out" ]]; then
   echo "Error: '$out' already exists." >&2
