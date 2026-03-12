@@ -80,10 +80,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+target_output_path="$out"
+if [[ "$out" == */ ]]; then
+  mkdir -p "$out"
+  target_output_path="$out$(basename "$file_path")"
+elif [[ -d "$out" ]]; then
+  echo "Error: '$out' is a directory. Use a trailing '/' to write into it." >&2
+  exit 1
+fi
+
 if [[ "$path_type" == "dir" ]]; then
   # still prevent dir overriding even with --force
-  if [[ -e "$out" ]]; then
-    echo "Error: '$out' already exists." >&2
+  if [[ -e "$target_output_path" ]]; then
+    echo "Error: '$target_output_path' already exists." >&2
     exit 1
   fi
   temp_tar="$(mktemp)"
@@ -95,18 +104,14 @@ if [[ "$path_type" == "dir" ]]; then
     echo "Error: failed to extract directory '$file_path' from archive." >&2
     exit 1
   fi
-  mv "$root_dir/$file_path" "$out"
+  mv "$root_dir/$file_path" "$target_output_path"
 elif [[ "$path_type" == "file" ]]; then
-  file_output_path="$out"
-  if [[ -d "$out" ]]; then
-    file_output_path="$out/$(basename "$file_path")"
-  fi
-  if [[ -d "$file_output_path" ]]; then
-    echo "Error: '$file_output_path' is a directory." >&2
+  if [[ -d "$target_output_path" ]]; then
+    echo "Error: '$target_output_path' is a directory." >&2
     exit 1
   fi
-  if [[ "$force" -ne 1 && -e "$file_output_path" ]]; then
-    echo "Error: '$file_output_path' already exists." >&2
+  if [[ "$force" -ne 1 && -e "$target_output_path" ]]; then
+    echo "Error: '$target_output_path' already exists." >&2
     exit 1
   fi
   temp_output="$(mktemp)"
@@ -115,7 +120,7 @@ elif [[ "$path_type" == "file" ]]; then
     "repos/$repo/contents/$file_path?ref=$ref" \
     >"$temp_output"
   # use temp file to avoid writing errors as file
-  mv -f "$temp_output" "$file_output_path"
+  mv -f "$temp_output" "$target_output_path"
 else
   echo "Error: unsupported path type '$path_type'." >&2
   exit 1
