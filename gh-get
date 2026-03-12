@@ -62,11 +62,6 @@ repo_input="$1"
 file_path="$2"
 out="${3:-$(basename "$file_path")}"
 
-if [[ "$force" -ne 1 && -e "$out" ]]; then
-  echo "Error: '$out' already exists." >&2
-  exit 1
-fi
-
 repo="$repo_input"
 if [[ "$repo_input" != */* ]]; then
   owner="$(gh api user -q .login)"
@@ -102,13 +97,25 @@ if [[ "$path_type" == "dir" ]]; then
   fi
   mv "$root_dir/$file_path" "$out"
 elif [[ "$path_type" == "file" ]]; then
+  file_output_path="$out"
+  if [[ -d "$out" ]]; then
+    file_output_path="$out/$(basename "$file_path")"
+  fi
+  if [[ -d "$file_output_path" ]]; then
+    echo "Error: '$file_output_path' is a directory." >&2
+    exit 1
+  fi
+  if [[ "$force" -ne 1 && -e "$file_output_path" ]]; then
+    echo "Error: '$file_output_path' already exists." >&2
+    exit 1
+  fi
   temp_output="$(mktemp)"
   gh api \
     -H "Accept: application/vnd.github.raw" \
     "repos/$repo/contents/$file_path?ref=$ref" \
     >"$temp_output"
   # use temp file to avoid writing errors as file
-  mv "$temp_output" "$out"
+  mv -f "$temp_output" "$file_output_path"
 else
   echo "Error: unsupported path type '$path_type'." >&2
   exit 1
