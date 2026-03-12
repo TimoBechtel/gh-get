@@ -26,6 +26,11 @@ file_path="$2"
 ref="${3:-main}"
 out="${4:-$(basename "$file_path")}"
 
+if [[ -e "$out" ]]; then
+  echo "Error: '$out' already exists." >&2
+  exit 1
+fi
+
 repo="$repo_input"
 if [[ "$repo_input" != */* ]]; then
   owner="$(gh api user -q .login)"
