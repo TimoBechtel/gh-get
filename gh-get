@@ -1,19 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+print_help() {
   cat <<'HELP'
 Download a file or directory from a GitHub repo without cloning it.
 
 Usage:
-  gh get <repo|owner/repo> <path/in/repo> [ref] [output]
+  gh get [--force] <repo|owner/repo> <path/in/repo> [ref] [output]
+
+Options:
+  -f, --force  Overwrite existing file.
 
 Examples:
   gh get github/gitignore README.md
+  gh get github/gitignore README.md --force
   gh get github/gitignore Global/macOS.gitignore main ./macOS.gitignore
 HELP
-  exit 0
-fi
+}
+
+force=0
+positional_args=()
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help|help)
+      print_help
+      exit 0
+      ;;
+    -f|--force)
+      force=1
+      ;;
+    *)
+      positional_args+=("$arg")
+      ;;
+  esac
+done
+set -- "${positional_args[@]}"
 
 if [[ $# -lt 2 ]]; then
   echo "Run: gh get --help" >&2
@@ -25,7 +46,7 @@ file_path="$2"
 ref="${3:-main}"
 out="${4:-$(basename "$file_path")}"
 
-if [[ -e "$out" ]]; then
+if [[ "$force" -ne 1 && -e "$out" ]]; then
   echo "Error: '$out' already exists." >&2
   exit 1
 fi
@@ -49,6 +70,11 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$path_type" == "dir" ]]; then
+  # still prevent dir overriding even with --force
+  if [[ -e "$out" ]]; then
+    echo "Error: '$out' already exists." >&2
+    exit 1
+  fi
   temp_tar="$(mktemp)"
   temp_extract="$(mktemp -d)"
   gh api "repos/$repo/tarball/$ref" >"$temp_tar"
