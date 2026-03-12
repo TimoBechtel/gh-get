@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+  cat <<'HELP'
+Download a single file from a GitHub repo without cloning it.
+
+Usage:
+  gh get <repo|owner/repo> <path/in/repo> [ref] [output]
+
+Examples:
+  gh get github/gitignore README.md
+  gh get gh-get README.md
+  gh get github/gitignore Global/macOS.gitignore main ./macOS.gitignore
+HELP
+  exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+  echo "Run: gh get --help" >&2
+  exit 1
+fi
+
+repo_input="$1"
+file_path="$2"
+ref="${3:-main}"
+out="${4:-$(basename "$file_path")}"
+
+repo="$repo_input"
+if [[ "$repo_input" != */* ]]; then
+  owner="$(gh api user -q .login)"
+  repo="$owner/$repo_input"
+fi
+
+temp_output="$(mktemp)"
+cleanup() {
+  rm -f "$temp_output"
+}
+trap cleanup EXIT
+
+gh api \
+  -H "Accept: application/vnd.github.raw" \
+  "repos/$repo/contents/$file_path?ref=$ref" \
+  >"$temp_output"
+
+# use temp file to avoid writing errors as file
+mv "$temp_output" "$out"
+trap - EXIT
