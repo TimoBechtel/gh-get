@@ -12,9 +12,13 @@ Options:
   -f, --force  Overwrite existing file.
   --ref        Branch, tag, or commit. Default: main
 
+Notes:
+  @alias resolves a path from .gh-get.json in the target repo at the selected ref.
+
 Examples:
   gh get github/gitignore README.md
   gh get github/gitignore Global/macOS.gitignore --ref main .gitignore
+  gh get github/gitignore @mac
 HELP
 }
 
@@ -65,6 +69,48 @@ repo="$repo_input"
 if [[ "$repo_input" != */* ]]; then
   owner="$(gh api user -q .login)"
   repo="$owner/$repo_input"
+fi
+
+if [[ "$file_path" == @* ]]; then
+  alias_name="${file_path#@}"
+  if [[ -z "$alias_name" ]]; then
+    echo "Error: alias name is missing after '@'." >&2
+    exit 1
+  fi
+
+  config_json=""
+  if ! config_json="$(gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/.gh-get.json?ref=$ref" 2>/dev/null)"; then
+    echo "Error: alias config '.gh-get.json' not found in '$repo' at ref '$ref'." >&2
+    exit 1
+  fi
+
+  if ! echo "$config_json" | jq -e . >/dev/null 2>&1; then
+    echo "Error: invalid JSON in '.gh-get.json'." >&2
+    exit 1
+  fi
+
+  if ! echo "$config_json" | jq -e '.aliases | type == "object"' >/dev/null 2>&1; then
+    echo "Error: invalid alias config '.gh-get.json'. Expected object at .aliases." >&2
+    exit 1
+  fi
+
+  if ! echo "$config_json" | jq -e --arg name "$alias_name" '.aliases | has($name)' >/dev/null 2>&1; then
+    available_aliases="$(echo "$config_json" | jq -r '.aliases | keys[]?' | paste -sd ", " -)"
+    if [[ -z "$available_aliases" ]]; then
+      echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
+    else
+      echo "Error: alias '@$alias_name' not found. Available aliases: $available_aliases" >&2
+    fi
+    exit 1
+  fi
+
+  if ! echo "$config_json" | jq -e --arg name "$alias_name" '.aliases[$name] | type == "string"' >/dev/null 2>&1; then
+    echo "Error: alias '@$alias_name' must be a string path in '.gh-get.json'." >&2
+    exit 1
+  fi
+
+  file_path="$(echo "$config_json" | jq -r --arg name "$alias_name" '.aliases[$name]')"
+  out="${3:-$(basename "$file_path")}"
 fi
 
 path_type="$(gh api "repos/$repo/contents/$file_path?ref=$ref" --jq 'if type == "array" then "dir" else .type end')"
