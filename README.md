@@ -34,6 +34,6 @@ Examples:
 ```bash
 gh get github/gitignore README.md
 gh get github/gitignore Global/macOS.gitignore --ref main .gitignore
-gh get github/gitignore @mac
+gh get owner/repo @mac
 gh get --help
 ```
