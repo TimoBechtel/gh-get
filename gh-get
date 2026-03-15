@@ -87,22 +87,22 @@ if [[ "$file_path" == @* ]]; then
 
   config_endpoint="repos/$repo/contents/$config_path?ref=$ref"
 
-  if ! gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | type == "object"' >/dev/null 2>&1; then
-    if ! gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" >/dev/null 2>&1; then
-      echo "Error: alias config '$config_path' not found in '$repo' at ref '$ref'." >&2
-    else
-      echo "Error: invalid alias config '$config_path'. Expected object at .aliases." >&2
-    fi
+  resolved_path=""
+  if ! resolved_path="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq ".aliases[\"$alias_name\"]" 2>/dev/null)"; then
+    echo "Error: failed to load alias '@$alias_name'. Missing or invalid '$config_path' in '$repo' at ref '$ref'." >&2
     exit 1
   fi
 
-  resolved_path="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq ".aliases[\"$alias_name\"]" 2>/dev/null || true)"
   if [[ -z "$resolved_path" || "$resolved_path" == "null" ]]; then
-    available_aliases="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | keys[]?' 2>/dev/null | paste -sd ", " -)"
-    if [[ -z "$available_aliases" ]]; then
-      echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
+    available_aliases=""
+    if available_aliases="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | keys[]?' 2>/dev/null | paste -sd ", " -)"; then
+      if [[ -z "$available_aliases" ]]; then
+        echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
+      else
+        echo "Error: alias '@$alias_name' not found. Available aliases: $available_aliases" >&2
+      fi
     else
-      echo "Error: alias '@$alias_name' not found. Available aliases: $available_aliases" >&2
+      echo "Error: alias '@$alias_name' not found." >&2
     fi
     exit 1
   fi
