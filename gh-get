@@ -80,55 +80,84 @@ if [[ "$file_path" == @* ]]; then
 
   config_path=".gh-get.json"
 
-  # Fetch JSON via the contents API and decode. We avoid relying on an external `jq`
-  # binary; `gh api --jq` provides jq filtering.
-  encoded_content=""
-  if ! encoded_content="$(gh api "repos/$repo/contents/$config_path?ref=$ref" --jq .content 2>/dev/null)"; then
+  config_json=""
+  if ! config_json="$(gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/$config_path?ref=$ref" 2>/dev/null)"; then
     echo "Error: alias config '$config_path' not found in '$repo' at ref '$ref'." >&2
     exit 1
   fi
 
-  if [[ -z "$encoded_content" || "$encoded_content" == "null" ]]; then
-    echo "Error: alias config '$config_path' is missing content." >&2
+  # Minimal JSON parsing in pure bash.
+  # Supported format:
+  # { "aliases": { "name": "path", ... } }
+  # No support for escaped quotes in keys/values.
+  config_min="$(printf '%s' "$config_json" | tr -d '\n\r\t ' )"
+
+  marker='"aliases":{'
+  if [[ "$config_min" != *$marker* ]]; then
+    echo "Error: invalid alias config '$config_path'. Expected object at .aliases." >&2
     exit 1
   fi
 
-  config_json="$(printf '%s' "$encoded_content" | tr -d '\n' | base64 -d 2>/dev/null || true)"
-  if [[ -z "$config_json" ]]; then
-    echo "Error: failed to decode alias config '$config_path'." >&2
+  rest="${config_min#*${marker}}"
+  depth=1
+  i=0
+  aliases_body=""
+  while [[ $i -lt ${#rest} ]]; do
+    ch="${rest:$i:1}"
+    if [[ "$ch" == "{" ]]; then
+      depth=$((depth + 1))
+    elif [[ "$ch" == "}" ]]; then
+      depth=$((depth - 1))
+      if [[ $depth -eq 0 ]]; then
+        break
+      fi
+    fi
+    aliases_body+="$ch"
+    i=$((i + 1))
+  done
+
+  if [[ $depth -ne 0 ]]; then
+    echo "Error: invalid JSON in '$config_path'." >&2
     exit 1
   fi
 
-  file_path="$(
-    printf '%s' "$config_json" | python3 -c 'import json,sys
-alias=sys.argv[1]
-config_path=sys.argv[2]
-try:
-  data=json.load(sys.stdin)
-except Exception:
-  print(f"Error: invalid JSON in '{config_path}'.", file=sys.stderr)
-  sys.exit(1)
-aliases=data.get("aliases")
-if not isinstance(aliases, dict):
-  print(f"Error: invalid alias config '{config_path}'. Expected object at .aliases.", file=sys.stderr)
-  sys.exit(1)
-if alias not in aliases:
-  keys=sorted([str(k) for k in aliases.keys()])
-  if not keys:
-    print(f"Error: alias '@{alias}' not found. No aliases are configured.", file=sys.stderr)
-  else:
-    print("Error: alias '@%s' not found. Available aliases: %s" % (alias, ", ".join(keys)), file=sys.stderr)
-  sys.exit(1)
-value=aliases[alias]
-if not isinstance(value, str):
-  print(f"Error: alias '@{alias}' must be a string path in '{config_path}'.", file=sys.stderr)
-  sys.exit(1)
-if not value:
-  print(f"Error: alias '@{alias}' must not be empty in '{config_path}'.", file=sys.stderr)
-  sys.exit(1)
-print(value)
-' "$alias_name" "$config_path"
-  )"
+  resolved_path=""
+  available_aliases=""
+  body="$aliases_body"
+  if [[ -z "$body" ]]; then
+    available_aliases=""
+  else
+    while [[ -n "$body" ]]; do
+      if [[ $body =~ ^\"([^\"]+)\":\"([^\"]*)\"(,?)(.*)$ ]]; then
+        key="${BASH_REMATCH[1]}"
+        val="${BASH_REMATCH[2]}"
+        body="${BASH_REMATCH[4]}"
+
+        if [[ -n "$available_aliases" ]]; then
+          available_aliases+=", "
+        fi
+        available_aliases+="$key"
+
+        if [[ "$key" == "$alias_name" ]]; then
+          resolved_path="$val"
+        fi
+      else
+        echo "Error: invalid alias config '$config_path'. Expected string map at .aliases." >&2
+        exit 1
+      fi
+    done
+  fi
+
+  if [[ -z "$resolved_path" ]]; then
+    if [[ -z "$available_aliases" ]]; then
+      echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
+    else
+      echo "Error: alias '@$alias_name' not found. Available aliases: $available_aliases" >&2
+    fi
+    exit 1
+  fi
+
+  file_path="$resolved_path"
   out="${3:-$(basename "$file_path")}"
 fi
 
