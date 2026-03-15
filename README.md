@@ -18,6 +18,7 @@ If you pass just `<repo>`, `gh get` uses your authenticated GitHub username as o
 Use `-f` or `--force` to overwrite existing files.
 Use `--ref` to select a branch, tag, or commit (default: `main`).
 Use `@alias` to resolve a path from `.gh-get.json` in the target repo at the selected ref.
+Alias names must match: `[a-zA-Z0-9_-]+`.
 
 `.gh-get.json` format:
 
