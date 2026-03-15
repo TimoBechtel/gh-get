@@ -80,75 +80,25 @@ if [[ "$file_path" == @* ]]; then
 
   config_path=".gh-get.json"
 
-  config_json=""
-  if ! config_json="$(gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/$config_path?ref=$ref" 2>/dev/null)"; then
-    echo "Error: alias config '$config_path' not found in '$repo' at ref '$ref'." >&2
+  if [[ ! "$alias_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: invalid alias name '@$alias_name'. Allowed: letters, numbers, _, -." >&2
     exit 1
   fi
 
-  # Minimal JSON parsing in pure bash.
-  # Supported format:
-  # { "aliases": { "name": "path", ... } }
-  # No support for escaped quotes in keys/values.
-  config_min="$(printf '%s' "$config_json" | tr -d '\n\r\t ' )"
+  config_endpoint="repos/$repo/contents/$config_path?ref=$ref"
 
-  marker='"aliases":{'
-  if [[ "$config_min" != *$marker* ]]; then
-    echo "Error: invalid alias config '$config_path'. Expected object at .aliases." >&2
-    exit 1
-  fi
-
-  rest="${config_min#*${marker}}"
-  depth=1
-  i=0
-  aliases_body=""
-  while [[ $i -lt ${#rest} ]]; do
-    ch="${rest:$i:1}"
-    if [[ "$ch" == "{" ]]; then
-      depth=$((depth + 1))
-    elif [[ "$ch" == "}" ]]; then
-      depth=$((depth - 1))
-      if [[ $depth -eq 0 ]]; then
-        break
-      fi
+  if ! gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | type == "object"' >/dev/null 2>&1; then
+    if ! gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" >/dev/null 2>&1; then
+      echo "Error: alias config '$config_path' not found in '$repo' at ref '$ref'." >&2
+    else
+      echo "Error: invalid alias config '$config_path'. Expected object at .aliases." >&2
     fi
-    aliases_body+="$ch"
-    i=$((i + 1))
-  done
-
-  if [[ $depth -ne 0 ]]; then
-    echo "Error: invalid JSON in '$config_path'." >&2
     exit 1
   fi
 
-  resolved_path=""
-  available_aliases=""
-  body="$aliases_body"
-  if [[ -z "$body" ]]; then
-    available_aliases=""
-  else
-    while [[ -n "$body" ]]; do
-      if [[ $body =~ ^\"([^\"]+)\":\"([^\"]*)\"(,?)(.*)$ ]]; then
-        key="${BASH_REMATCH[1]}"
-        val="${BASH_REMATCH[2]}"
-        body="${BASH_REMATCH[4]}"
-
-        if [[ -n "$available_aliases" ]]; then
-          available_aliases+=", "
-        fi
-        available_aliases+="$key"
-
-        if [[ "$key" == "$alias_name" ]]; then
-          resolved_path="$val"
-        fi
-      else
-        echo "Error: invalid alias config '$config_path'. Expected string map at .aliases." >&2
-        exit 1
-      fi
-    done
-  fi
-
-  if [[ -z "$resolved_path" ]]; then
+  resolved_path="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq ".aliases[\"$alias_name\"]" 2>/dev/null || true)"
+  if [[ -z "$resolved_path" || "$resolved_path" == "null" ]]; then
+    available_aliases="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | keys[]?' 2>/dev/null | paste -sd ", " -)"
     if [[ -z "$available_aliases" ]]; then
       echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
     else
