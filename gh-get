@@ -12,9 +12,13 @@ Options:
   -f, --force  Overwrite existing file.
   --ref        Branch, tag, or commit. Default: main
 
+Notes:
+  @alias resolves a path from .gh-get.json in the target repo at the selected ref.
+
 Examples:
   gh get github/gitignore README.md
   gh get github/gitignore Global/macOS.gitignore --ref main .gitignore
+  gh get owner/repo @mac
 HELP
 }
 
@@ -65,6 +69,46 @@ repo="$repo_input"
 if [[ "$repo_input" != */* ]]; then
   owner="$(gh api user -q .login)"
   repo="$owner/$repo_input"
+fi
+
+if [[ "$file_path" == @* ]]; then
+  alias_name="${file_path#@}"
+  if [[ -z "$alias_name" ]]; then
+    echo "Error: alias name is missing after '@'." >&2
+    exit 1
+  fi
+
+  config_path=".gh-get.json"
+
+  if [[ ! "$alias_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: invalid alias name '@$alias_name'. Allowed: letters, numbers, _, -." >&2
+    exit 1
+  fi
+
+  config_endpoint="repos/$repo/contents/$config_path?ref=$ref"
+
+  resolved_path=""
+  if ! resolved_path="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq ".aliases[\"$alias_name\"]" 2>/dev/null)"; then
+    echo "Error: failed to load alias '@$alias_name'. Missing or invalid '$config_path' in '$repo' at ref '$ref'." >&2
+    exit 1
+  fi
+
+  if [[ -z "$resolved_path" || "$resolved_path" == "null" ]]; then
+    available_aliases=""
+    if available_aliases="$(gh api -H "Accept: application/vnd.github.raw" "$config_endpoint" --jq '.aliases | keys[]?' 2>/dev/null | paste -sd ", " -)"; then
+      if [[ -z "$available_aliases" ]]; then
+        echo "Error: alias '@$alias_name' not found. No aliases are configured." >&2
+      else
+        echo "Error: alias '@$alias_name' not found. Available aliases: $available_aliases" >&2
+      fi
+    else
+      echo "Error: alias '@$alias_name' not found." >&2
+    fi
+    exit 1
+  fi
+
+  file_path="$resolved_path"
+  out="${3:-$(basename "$file_path")}"
 fi
 
 path_type="$(gh api "repos/$repo/contents/$file_path?ref=$ref" --jq 'if type == "array" then "dir" else .type end')"
